@@ -16,7 +16,7 @@ func NewOrderRepository(db *sql.DB) *OrderRepository {
 
 func (r *OrderRepository) Create(ctx context.Context, order model.Order) (model.Order, error) {
 	query := `
-		INSERT INFO orders (user_id, product_id, count, status)
+		INSERT INTO orders (user_id, product_id, count, status)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, user_id, product_id, count, status, created_at
 	`
