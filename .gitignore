@@ -1,0 +1,29 @@
+# OS and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local environment
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Go build and test artifacts
+bin/
+tmp/
+dist/
+build/
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Local binaries commonly produced by `go build`
+order-service/order-service
+order-service/cmd/cmd
+
+# Logs
+*.log
