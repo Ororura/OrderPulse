@@ -6,15 +6,15 @@ import (
 	"order-service/internal/model"
 )
 
-type OrderRepository struct {
+type PostgresOrderRepository struct {
 	db *sql.DB
 }
 
-func NewOrderRepository(db *sql.DB) *OrderRepository {
-	return &OrderRepository{db: db}
+func NewOrderRepository(db *sql.DB) *PostgresOrderRepository {
+	return &PostgresOrderRepository{db: db}
 }
 
-func (r *OrderRepository) Create(ctx context.Context, order model.Order) (model.Order, error) {
+func (r *PostgresOrderRepository) Create(ctx context.Context, order model.Order) (model.Order, error) {
 	query := `
 		INSERT INTO orders (user_id, product_id, count, status)
 		VALUES ($1, $2, $3, $4)
