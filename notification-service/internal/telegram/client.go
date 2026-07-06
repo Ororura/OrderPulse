@@ -42,6 +42,9 @@ func (c *Client) SendMessage(ctx context.Context, text string) error {
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
 
 	req.Header.Set("Content-Type", "application/json")
 
@@ -53,7 +56,7 @@ func (c *Client) SendMessage(ctx context.Context, text string) error {
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("telegram returned status: %s", resp.Status)
-
 	}
+
 	return nil
 }

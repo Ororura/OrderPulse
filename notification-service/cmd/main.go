@@ -7,6 +7,7 @@ import (
 	"notification-service/internal/config"
 	"notification-service/internal/consumer"
 	"notification-service/internal/telegram"
+	"notification-service/internal/usecase"
 	"os"
 	"os/signal"
 	"syscall"
@@ -19,11 +20,12 @@ func main() {
 	defer cancel()
 
 	telegramClient := telegram.NewClient(cfg.TelegramBotToken, cfg.TelegramChatID)
+	notificationService := usecase.NewNotificationService(telegramClient)
 
 	orderConsumer := consumer.NewOrderConsumer(cfg.KafkaBrokers,
 		cfg.KafkaOrderCreatedTopic,
 		cfg.KafkaConsumerGroup,
-		telegramClient)
+		notificationService)
 	defer orderConsumer.Close()
 
 	if err := orderConsumer.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {

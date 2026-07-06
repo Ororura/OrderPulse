@@ -3,21 +3,22 @@ package consumer
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
-	"notification-service/internal/telegram"
-
-	kafkapkg "notification-service/internal/kafka"
+	"notification-service/internal/domain"
 
 	"github.com/segmentio/kafka-go"
 )
 
-type OrderConsumer struct {
-	reader         *kafka.Reader
-	telegramClient *telegram.Client
+type OrderCreatedHandler interface {
+	NotifyOrderCreated(ctx context.Context, event domain.OrderCreatedEvent) error
 }
 
-func NewOrderConsumer(brokers []string, topic string, groupID string, telegramClient *telegram.Client) *OrderConsumer {
+type OrderConsumer struct {
+	reader  *kafka.Reader
+	handler OrderCreatedHandler
+}
+
+func NewOrderConsumer(brokers []string, topic string, groupID string, handler OrderCreatedHandler) *OrderConsumer {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: brokers,
 		Topic:   topic,
@@ -25,8 +26,8 @@ func NewOrderConsumer(brokers []string, topic string, groupID string, telegramCl
 	})
 
 	return &OrderConsumer{
-		reader:         reader,
-		telegramClient: telegramClient,
+		reader:  reader,
+		handler: handler,
 	}
 }
 
@@ -44,21 +45,15 @@ func (c *OrderConsumer) Start(ctx context.Context) error {
 			continue
 		}
 
-		var event kafkapkg.OrderCreatedEvent
+		var event domain.OrderCreatedEvent
 
 		if err := json.Unmarshal(msg.Value, &event); err != nil {
-			log.Println("failed to decode ordder event:", err)
+			log.Println("failed to decode order event:", err)
 			continue
 		}
 
-		text := fmt.Sprintf("🛒 Новый заказ\n\nOrder ID: %d\nUser ID: %d\nProduct ID: %d\nCount: %d\nStatus: %s", event.OrderID,
-			event.UserID,
-			event.ProductID,
-			event.Count,
-			event.Status)
-
-		if err := c.telegramClient.SendMessage(ctx, text); err != nil {
-			log.Println("failed to send telegram message:", err)
+		if err := c.handler.NotifyOrderCreated(ctx, event); err != nil {
+			log.Println("failed to send order notification:", err)
 			continue
 		}
 
