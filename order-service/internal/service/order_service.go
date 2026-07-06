@@ -5,15 +5,14 @@ import (
 	"errors"
 	"order-service/internal/kafka"
 	"order-service/internal/model"
-	"order-service/internal/repository"
 )
 
 type OrderService struct {
-	repo     *repository.OrderRepository
-	producer *kafka.Producer
+	repo     OrderRepository
+	producer EventProducer
 }
 
-func NewOrderService(repo *repository.OrderRepository, producer *kafka.Producer) *OrderService {
+func NewOrderService(repo OrderRepository, producer EventProducer) *OrderService {
 	return &OrderService{
 		repo, producer,
 	}
