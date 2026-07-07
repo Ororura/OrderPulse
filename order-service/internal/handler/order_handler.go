@@ -37,7 +37,7 @@ func (h *OrderHandler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 	order, err := h.service.CreateOrder(r.Context(), req)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{
-			"error": err.Error(),
+			"error": "failed to create order",
 		})
 
 		return
