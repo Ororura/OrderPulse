@@ -1,10 +1,10 @@
 # Order Go
 
-Order Go is a small event-driven Go project that demonstrates order creation, persistence in PostgreSQL, event publishing to Kafka, and Telegram notifications from a separate consumer service.
+Order Go is a small event-driven Go project that demonstrates order creation, persistence in PostgreSQL, Redis-backed order read caching, event publishing to Kafka, and Telegram notifications from a separate consumer service.
 
 The repository contains two independent Go services:
 
-- `order-service` - exposes an HTTP API for creating orders, stores them in PostgreSQL, and publishes `orders.created` events to Kafka.
+- `order-service` - exposes an HTTP API for creating and reading orders, stores them in PostgreSQL, caches reads in Redis, and publishes `orders.created` events to Kafka.
 - `notification-service` - consumes `orders.created` events from Kafka and sends a Telegram message for each created order.
 
 ---
@@ -68,6 +68,7 @@ Telegram chat
 
 - Go `1.25.6`
 - PostgreSQL `16`
+- Redis `7`
 - Apache Kafka
 - `segmentio/kafka-go` for Kafka producer and consumer logic
 - `lib/pq` PostgreSQL driver
@@ -82,6 +83,7 @@ Telegram chat
 Responsibilities:
 
 - Accepts order creation requests over HTTP.
+- Serves single-order reads with Redis cache-aside lookup.
 - Validates the request payload.
 - Persists valid orders to PostgreSQL.
 - Publishes an `orders.created` Kafka event after the order is saved.
@@ -92,6 +94,7 @@ HTTP endpoints:
 | Method | Path | Description |
 | --- | --- | --- |
 | `POST` | `/orders` | Create a new order |
+| `GET` | `/orders/{id}` | Get an order by ID |
 | `GET` | `/health` | Health check, returns `ok` |
 
 Create order request:
@@ -101,6 +104,19 @@ Create order request:
   "user_id": 1,
   "product_id": 10,
   "count": 2
+}
+```
+
+Get order response:
+
+```json
+{
+  "id": 1,
+  "user_id": 1,
+  "product_id": 10,
+  "count": 2,
+  "status": "created",
+  "created_at": "2026-07-05T12:00:00Z"
 }
 ```
 
@@ -197,6 +213,10 @@ Example file: `order-service/.env.example`
 | `DB_URL` | Yes | - | PostgreSQL connection string |
 | `KAFKA_BROKETS` | No | `localhost:9092` | Kafka broker list used by the current code |
 | `KAFKA_ORDER_CREATED_TOPIC` | No | `orders.created` | Kafka topic for created order events |
+| `REDIS_ADDR` | No | `localhost:6379` | Redis address for order read cache |
+| `REDIS_PASSWORD` | No | empty | Redis password |
+| `REDIS_DB` | No | `0` | Redis database number |
+| `ORDER_CACHE_TTL` | No | `5m` | TTL for cached order JSON |
 
 Important: the current `order-service` code reads `KAFKA_BROKETS` with this exact spelling. The provided `.env.example` uses `KAFKA_BROKERS`, so either update the code or use `KAFKA_BROKETS` in the actual `.env` file until the typo is fixed.
 
@@ -207,6 +227,10 @@ HTTP_PORT=8080
 DB_URL=postgres://pg:pg@localhost:5432/orders?sslmode=disable
 KAFKA_BROKETS=localhost:9092
 KAFKA_ORDER_CREATED_TOPIC=orders.created
+REDIS_ADDR=localhost:6379
+REDIS_PASSWORD=
+REDIS_DB=0
+ORDER_CACHE_TTL=5m
 ```
 
 #### notification-service
@@ -232,7 +256,7 @@ Example file: `notification-service/env.example`
 
 #### 1. Start Infrastructure
 
-Run PostgreSQL, Kafka, and Kafka UI:
+Run PostgreSQL, Redis, Kafka, and Kafka UI:
 
 ```bash
 cd order-service
@@ -244,6 +268,7 @@ Local services:
 | Service | URL |
 | --- | --- |
 | PostgreSQL | `localhost:5432` |
+| Redis | `localhost:6379` |
 | Kafka | `localhost:9092` |
 | Kafka UI | `http://localhost:8081` |
 
@@ -297,6 +322,12 @@ Create an order:
 curl -X POST http://localhost:8080/orders \
   -H "Content-Type: application/json" \
   -d '{"user_id":1,"product_id":10,"count":2}'
+```
+
+Get an order:
+
+```bash
+curl http://localhost:8080/orders/1
 ```
 
 #### 5. Configure notification-service
@@ -365,8 +396,9 @@ docker compose down -v
 
 - `order-service` shuts down gracefully on `SIGINT` or `SIGTERM`.
 - `notification-service` also uses signal-aware context cancellation.
+- `GET /orders/{id}` uses Redis as a cache-aside layer. Redis read/write errors are logged and PostgreSQL remains the source of truth.
 - If publishing to Kafka fails after the database insert succeeds, the current implementation returns an error to the HTTP client, but the order remains stored in PostgreSQL.
-- There are currently no automated tests in the repository.
+- `order-service` has unit tests for the `GET /orders/{id}` handler and cache-aside service behavior.
 - Kafka UI is available at `http://localhost:8081` and can be used to inspect topics and messages.
 
 ---
@@ -430,6 +462,7 @@ Telegram-чат
 
 - Go `1.25.6`
 - PostgreSQL `16`
+- Redis `7`
 - Apache Kafka
 - `segmentio/kafka-go` для Kafka producer и consumer
 - `lib/pq` как PostgreSQL-драйвер
@@ -444,6 +477,7 @@ Telegram-чат
 Задачи сервиса:
 
 - Принимает HTTP-запросы на создание заказов.
+- Отдает чтение одного заказа через Redis cache-aside.
 - Валидирует тело запроса.
 - Сохраняет корректные заказы в PostgreSQL.
 - Публикует Kafka-событие `orders.created` после сохранения заказа.
@@ -454,6 +488,7 @@ HTTP endpoints:
 | Метод | Путь | Описание |
 | --- | --- | --- |
 | `POST` | `/orders` | Создать новый заказ |
+| `GET` | `/orders/{id}` | Получить заказ по ID |
 | `GET` | `/health` | Проверка состояния сервиса, возвращает `ok` |
 
 Запрос на создание заказа:
@@ -463,6 +498,19 @@ HTTP endpoints:
   "user_id": 1,
   "product_id": 10,
   "count": 2
+}
+```
+
+Ответ чтения заказа:
+
+```json
+{
+  "id": 1,
+  "user_id": 1,
+  "product_id": 10,
+  "count": 2,
+  "status": "created",
+  "created_at": "2026-07-05T12:00:00Z"
 }
 ```
 
@@ -559,6 +607,10 @@ CREATE TABLE IF NOT EXISTS orders (
 | `DB_URL` | Да | - | Строка подключения к PostgreSQL |
 | `KAFKA_BROKETS` | Нет | `localhost:9092` | Список Kafka brokers, который сейчас читает код |
 | `KAFKA_ORDER_CREATED_TOPIC` | Нет | `orders.created` | Kafka-топик для событий создания заказа |
+| `REDIS_ADDR` | Нет | `localhost:6379` | Адрес Redis для кэша чтения заказов |
+| `REDIS_PASSWORD` | Нет | пусто | Пароль Redis |
+| `REDIS_DB` | Нет | `0` | Номер базы Redis |
+| `ORDER_CACHE_TTL` | Нет | `5m` | TTL JSON заказа в кэше |
 
 Важно: текущий код `order-service` читает переменную `KAFKA_BROKETS` именно с таким написанием. В `.env.example` сейчас указано `KAFKA_BROKERS`, поэтому до исправления опечатки в коде используйте `KAFKA_BROKETS` в реальном `.env` файле или поправьте код.
 
@@ -569,6 +621,10 @@ HTTP_PORT=8080
 DB_URL=postgres://pg:pg@localhost:5432/orders?sslmode=disable
 KAFKA_BROKETS=localhost:9092
 KAFKA_ORDER_CREATED_TOPIC=orders.created
+REDIS_ADDR=localhost:6379
+REDIS_PASSWORD=
+REDIS_DB=0
+ORDER_CACHE_TTL=5m
 ```
 
 #### notification-service
@@ -594,7 +650,7 @@ KAFKA_ORDER_CREATED_TOPIC=orders.created
 
 #### 1. Запустить Инфраструктуру
 
-Запустите PostgreSQL, Kafka и Kafka UI:
+Запустите PostgreSQL, Redis, Kafka и Kafka UI:
 
 ```bash
 cd order-service
@@ -606,6 +662,7 @@ docker compose up -d
 | Сервис | URL |
 | --- | --- |
 | PostgreSQL | `localhost:5432` |
+| Redis | `localhost:6379` |
 | Kafka | `localhost:9092` |
 | Kafka UI | `http://localhost:8081` |
 
@@ -659,6 +716,12 @@ curl http://localhost:8080/health
 curl -X POST http://localhost:8080/orders \
   -H "Content-Type: application/json" \
   -d '{"user_id":1,"product_id":10,"count":2}'
+```
+
+Получение заказа:
+
+```bash
+curl http://localhost:8080/orders/1
 ```
 
 #### 5. Настроить notification-service
@@ -727,6 +790,7 @@ docker compose down -v
 
 - `order-service` корректно завершает работу по `SIGINT` или `SIGTERM`.
 - `notification-service` также использует context cancellation при получении сигнала остановки.
+- `GET /orders/{id}` использует Redis как cache-aside слой. Ошибки чтения/записи Redis логируются, а PostgreSQL остается источником истины.
 - Если публикация в Kafka завершится ошибкой после успешного INSERT в базу, текущая реализация вернет ошибку HTTP-клиенту, но заказ останется сохраненным в PostgreSQL.
-- Автоматизированных тестов в репозитории сейчас нет.
+- В `order-service` есть unit-тесты для `GET /orders/{id}` handler и cache-aside поведения service.
 - Kafka UI доступен по адресу `http://localhost:8081`; через него удобно проверять топики и сообщения.

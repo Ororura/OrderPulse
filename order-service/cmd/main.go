@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"order-service/internal/cache"
 	"order-service/internal/config"
 	"order-service/internal/database"
 	"order-service/internal/handler"
@@ -28,14 +29,18 @@ func main() {
 	producer := kafka.NewProducer(cfg.KafkaBrokets, cfg.KafkaOrderCreatedTopic)
 	defer producer.Close()
 
+	orderCache := cache.NewOrderCache(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB, cfg.OrderCacheTTL)
+	defer orderCache.Close()
+
 	orderRepo := repository.NewOrderRepository(db)
-	orderService := service.NewOrderService(orderRepo, producer)
+	orderService := service.NewOrderService(orderRepo, producer, orderCache)
 	orderHandler := handler.NewOrderHandler(orderService)
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/orders", orderHandler.CreateOrder)
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /orders", orderHandler.CreateOrder)
+	mux.HandleFunc("GET /orders/{id}", orderHandler.GetOrder)
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
