@@ -38,3 +38,27 @@ func (r *PostgresOrderRepository) Create(ctx context.Context, order model.Order)
 
 	return created, nil
 }
+
+func (r *OrderRepository) GetByID(ctx context.Context, id int64) (model.Order, error) {
+	query := `
+		SELECT id, user_id, product_id, count, status, created_at
+		FROM orders
+		WHERE id = $1
+	`
+
+	var order model.Order
+
+	err := r.db.QueryRowContext(ctx, query, id).Scan(
+		&order.ID,
+		&order.UserID,
+		&order.ProductID,
+		&order.Count,
+		&order.Status,
+		&order.CreatedAt,
+	)
+	if err != nil {
+		return model.Order{}, err
+	}
+
+	return order, nil
+}
